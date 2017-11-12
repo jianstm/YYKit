@@ -27,22 +27,30 @@
 
 YY_EXTERN_C_BEGIN
 
+// YY_CLAMP
 #ifndef YY_CLAMP // return the clamped value
 #define YY_CLAMP(_x_, _low_, _high_)  (((_x_) > (_high_)) ? (_high_) : (((_x_) < (_low_)) ? (_low_) : (_x_)))
 #endif
 
+// YY_SWAP
 #ifndef YY_SWAP // swap two value
 #define YY_SWAP(_a_, _b_)  do { __typeof__(_a_) _tmp_ = (_a_); (_a_) = (_b_); (_b_) = _tmp_; } while (0)
 #endif
 
 
+// YYAssertNil
 #define YYAssertNil(condition, description, ...) NSAssert(!(condition), (description), ##__VA_ARGS__)
+// YYCAssertNil
 #define YYCAssertNil(condition, description, ...) NSCAssert(!(condition), (description), ##__VA_ARGS__)
 
+// YYAssertNotNil
 #define YYAssertNotNil(condition, description, ...) NSAssert((condition), (description), ##__VA_ARGS__)
+// YYCAssertNotNil
 #define YYCAssertNotNil(condition, description, ...) NSCAssert((condition), (description), ##__VA_ARGS__)
 
+// YYAssertMainThread
 #define YYAssertMainThread() NSAssert([NSThread isMainThread], @"This method must be called on the main thread")
+// YYCAssertMainThread
 #define YYCAssertMainThread() NSCAssert([NSThread isMainThread], @"This method must be called on the main thread")
 
 
@@ -55,6 +63,8 @@ YY_EXTERN_C_BEGIN
  Example:
      YYSYNTH_DUMMY_CLASS(NSString_YYAdd)
  */
+// 编译静态库时需要添加 -all_load 或者 -force_load 才能把分类文件也编译进去。
+// 而在分类的实现文件中加一个完整的 dummy 分类的声明和实现就可以避免这些。
 #ifndef YYSYNTH_DUMMY_CLASS
 #define YYSYNTH_DUMMY_CLASS(_name_) \
 @interface YYSYNTH_DUMMY_CLASS_ ## _name_ : NSObject @end \
@@ -79,6 +89,7 @@ YY_EXTERN_C_BEGIN
      YYSYNTH_DYNAMIC_PROPERTY_OBJECT(myColor, setMyColor, RETAIN, UIColor *)
      @end
  */
+// 在分类中使用 associatedObject 绑定 object 属性，key 是 @selector(_setter_:)。
 #ifndef YYSYNTH_DYNAMIC_PROPERTY_OBJECT
 #define YYSYNTH_DYNAMIC_PROPERTY_OBJECT(_getter_, _setter_, _association_, _type_) \
 - (void)_setter_ : (_type_)object { \
@@ -108,6 +119,8 @@ YY_EXTERN_C_BEGIN
      YYSYNTH_DYNAMIC_PROPERTY_CTYPE(myPoint, setMyPoint, CGPoint)
      @end
  */
+// 在分类中使用 associatedObject 绑定 c-type 属性，即那些值传递的属性，key 是 @selector(_setter_:)。
+// { 0 } 可以为任意结构体赋初始化值。
 #ifndef YYSYNTH_DYNAMIC_PROPERTY_CTYPE
 #define YYSYNTH_DYNAMIC_PROPERTY_CTYPE(_getter_, _setter_, _type_) \
 - (void)_setter_ : (_type_)object { \
@@ -136,6 +149,7 @@ YY_EXTERN_C_BEGIN
     }];
 
  */
+// 用 autoreleasepool{} 只是为了要它前边的 @
 #ifndef weakify
     #if DEBUG
         #if __has_feature(objc_arc)
@@ -190,9 +204,9 @@ static inline CFRange YYCFRangeFromNSRange(NSRange range) {
  @param arg CFObject @return same as input
  */
 static inline CFTypeRef YYCFAutorelease(CFTypeRef CF_RELEASES_ARGUMENT arg) {
-    if (((long)CFAutorelease + 1) != 1) {
+    if (((long)CFAutorelease + 1) != 1) {  // iOS7/7+
         return CFAutorelease(arg);
-    } else {
+    } else {  // iOS6, CFBridgingRelease 先转成 NSObject，再转回 CF
         id __autoreleasing obj = CFBridgingRelease(arg);
         return (__bridge CFTypeRef)obj;
     }
@@ -232,6 +246,7 @@ static inline void YYBenchmark(void (^block)(void), void (^complete)(double ms))
     complete(ms);
 }
 
+// "Sept 10 2017 19:00:00"
 static inline NSDate *_YYCompileTime(const char *data, const char *time) {
     NSString *timeStr = [NSString stringWithFormat:@"%s %s",data,time];
     NSLocale *locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US"];
@@ -245,6 +260,8 @@ static inline NSDate *_YYCompileTime(const char *data, const char *time) {
  Get compile timestamp.
  @return A new date object set to the compile date and time.
  */
+// "__DATE__" 格式："Sept 10 2017"
+// "__TIME__" 格式："19:00:00"
 #ifndef YYCompileTime
 // use macro to avoid compile warning when use pch file
 #define YYCompileTime() _YYCompileTime(__DATE__, __TIME__)
@@ -253,6 +270,7 @@ static inline NSDate *_YYCompileTime(const char *data, const char *time) {
 /**
  Returns a dispatch_time delay from now.
  */
+// dispatch_time 当设备停下来时，例如睡眠、关机，也会停下来。
 static inline dispatch_time_t dispatch_time_delay(NSTimeInterval second) {
     return dispatch_time(DISPATCH_TIME_NOW, (int64_t)(second * NSEC_PER_SEC));
 }
@@ -260,6 +278,7 @@ static inline dispatch_time_t dispatch_time_delay(NSTimeInterval second) {
 /**
  Returns a dispatch_wall_time delay from now.
  */
+// dispatch_walltime 一直在走
 static inline dispatch_time_t dispatch_walltime_delay(NSTimeInterval second) {
     return dispatch_walltime(DISPATCH_TIME_NOW, (int64_t)(second * NSEC_PER_SEC));
 }
@@ -284,6 +303,7 @@ static inline dispatch_time_t dispatch_walltime_date(NSDate *date) {
 /**
  Whether in main queue/thread.
  */
+// [NSThread isMainThread];
 static inline bool dispatch_is_main_queue() {
     return pthread_main_np() != 0;
 }
@@ -313,6 +333,7 @@ static inline void dispatch_sync_on_main_queue(void (^block)()) {
 /**
  Initialize a pthread mutex.
  */
+// 递归锁，同一线程可以重复加锁
 static inline void pthread_mutex_init_recursive(pthread_mutex_t *mutex, bool recursive) {
 #define YYMUTEX_ASSERT_ON_ERROR(x_) do { \
 __unused volatile int res = (x_); \
@@ -328,7 +349,7 @@ assert(res == 0); \
         YYMUTEX_ASSERT_ON_ERROR(pthread_mutex_init (mutex, &attr));
         YYMUTEX_ASSERT_ON_ERROR(pthread_mutexattr_destroy (&attr));
     }
-#undef YYMUTEX_ASSERT_ON_ERROR
+#undef YYMUTEX_ASSERT_ON_ERROR  // #undef 取消该宏定义
 }
 
 
