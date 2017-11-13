@@ -83,6 +83,7 @@ static NSString *const kTrashDirectoryName = @"trash";
     if (result == SQLITE_OK) {
         CFDictionaryKeyCallBacks keyCallbacks = kCFCopyStringDictionaryKeyCallBacks;
         CFDictionaryValueCallBacks valueCallbacks = {0};
+        // 用 CFDictionary 来减少开销？
         _dbStmtCache = CFDictionaryCreateMutable(CFAllocatorGetDefault(), 0, &keyCallbacks, &valueCallbacks);
         _dbLastOpenErrorTime = 0;
         _dbOpenErrorCount = 0;
@@ -119,6 +120,7 @@ static NSString *const kTrashDirectoryName = @"trash";
                 stmtFinalized = YES;
                 sqlite3_stmt *stmt;
                 while ((stmt = sqlite3_next_stmt(_db, nil)) != 0) {
+                    // 销毁所有剩下的 statement
                     sqlite3_finalize(stmt);
                     retry = YES;
                 }
@@ -136,6 +138,7 @@ static NSString *const kTrashDirectoryName = @"trash";
 - (BOOL)_dbCheck {
     if (!_db) {
         if (_dbOpenErrorCount < kMaxErrorRetryCount &&
+            // 距离上次打开失败的时间大于 2 秒才会重试打开
             CACurrentMediaTime() - _dbLastOpenErrorTime > kMinRetryTimeInterval) {
             return [self _dbOpen] && [self _dbInitialize];
         } else {
@@ -146,6 +149,7 @@ static NSString *const kTrashDirectoryName = @"trash";
 }
 
 - (BOOL)_dbInitialize {
+    // 使用 wal 模式，用 last_access_time 来索引
     NSString *sql = @"pragma journal_mode = wal; pragma synchronous = normal; create table if not exists manifest (key text, filename text, size integer, inline_data blob, modification_time integer, last_access_time integer, extended_data blob, primary key(key)); create index if not exists last_access_time_idx on manifest(last_access_time);";
     return [self _dbExecute:sql];
 }
@@ -164,6 +168,7 @@ static NSString *const kTrashDirectoryName = @"trash";
     int result = sqlite3_exec(_db, sql.UTF8String, NULL, NULL, &error);
     if (error) {
         if (_errorLogsEnabled) NSLog(@"%s line:%d sqlite exec error (%d): %s", __FUNCTION__, __LINE__, result, error);
+        // 还要释放错误信息
         sqlite3_free(error);
     }
     
@@ -680,6 +685,7 @@ static NSString *const kTrashDirectoryName = @"trash";
     _dbPath = [path stringByAppendingPathComponent:kDBFileName];
     _errorLogsEnabled = YES;
     NSError *error = nil;
+    // 为什么不 (op1 && op2 && op3)
     if (![[NSFileManager defaultManager] createDirectoryAtPath:path
                                    withIntermediateDirectories:YES
                                                     attributes:nil
@@ -711,8 +717,10 @@ static NSString *const kTrashDirectoryName = @"trash";
 }
 
 - (void)dealloc {
+    // app 进入后台后还会持续运行一段时间。
     UIBackgroundTaskIdentifier taskID = [[UIApplication sharedExtensionApplication] beginBackgroundTaskWithExpirationHandler:^{}];
     [self _dbClose];
+    // 如果 taskID 可用，结束这个后台任务。
     if (taskID != UIBackgroundTaskInvalid) {
         [[UIApplication sharedExtensionApplication] endBackgroundTask:taskID];
     }
@@ -736,13 +744,16 @@ static NSString *const kTrashDirectoryName = @"trash";
         if (![self _fileWriteWithName:filename data:value]) {
             return NO;
         }
+        
         if (![self _dbSaveWithKey:key value:value fileName:filename extendedData:extendedData]) {
+            // 如果写入数据库失败，把文件系统中的也删除。
             [self _fileDeleteWithName:filename];
             return NO;
         }
         return YES;
     } else {
         if (_type != YYKVStorageTypeSQLite) {
+            // 相同 key，如果原来有名字，现在没名字，就删除现在文件系统的缓存。
             NSString *filename = [self _dbGetFilenameWithKey:key];
             if (filename) {
                 [self _fileDeleteWithName:filename];

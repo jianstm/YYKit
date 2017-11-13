@@ -33,6 +33,7 @@ static inline dispatch_queue_t YYMemoryCacheGetReleaseQueue() {
  A node in linked map.
  Typically, you should not use this class directly.
  */
+// 双向链表节点，用来实现 LRU 算法
 @interface _YYLinkedMapNode : NSObject {
     @package
     __unsafe_unretained _YYLinkedMapNode *_prev; // retained by dic
@@ -219,6 +220,7 @@ static inline dispatch_queue_t YYMemoryCacheGetReleaseQueue() {
     
     NSMutableArray *holder = [NSMutableArray new];
     while (!finish) {
+        // 返回 0 表示加锁成功
         if (pthread_mutex_trylock(&_lock) == 0) {
             if (_lru->_totalCost > costLimit) {
                 _YYLinkedMapNode *node = [_lru removeTailNode];
@@ -228,6 +230,7 @@ static inline dispatch_queue_t YYMemoryCacheGetReleaseQueue() {
             }
             pthread_mutex_unlock(&_lock);
         } else {
+            // 睡眠秒级使用 sleep()，毫秒级使用 usleep()
             usleep(10 * 1000); //10 ms
         }
     }
